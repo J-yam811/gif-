@@ -1,0 +1,41 @@
+#!/bin/bash
+set -euo pipefail
+
+APP_PATH="$(cd "$(dirname "$0")/../.." && pwd)"
+PROJECT_DIR="$(cd "$APP_PATH/.." && pwd)"
+if [ ! -f "$PROJECT_DIR/gifify.py" ]; then
+  PROJECT_DIR="/Users/yamasejun/開発/GIF化ツール"
+fi
+cd "$PROJECT_DIR"
+
+# Collect arguments excluding LaunchServices process serial number
+args=()
+for arg in "$@"; do
+  case "$arg" in
+    -psn_*) ;; # ignore
+    *) args+=("$arg") ;;
+  esac
+done
+
+if [ ${#args[@]} -gt 0 ]; then
+  status=0
+  for file in "${args[@]}"; do
+    if [ -f "$file" ]; then
+      /usr/bin/env python3 gifify.py "$file" || status=$?
+    fi
+  done
+  if command -v osascript >/dev/null 2>&1; then
+    if [ $status -eq 0 ]; then
+      osascript -e 'display notification "ドラッグしたファイルのGIF変換が完了しました" with title "GIF化ツール"' >/dev/null 2>&1 || true
+    else
+      osascript -e 'display notification "一部のGIF変換に失敗しました" with title "GIF化ツール"' >/dev/null 2>&1 || true
+    fi
+  fi
+  exit $status
+fi
+
+nohup /usr/bin/env python3 webui.py --open >/tmp/gifify-webui.log 2>&1 &
+if command -v osascript >/dev/null 2>&1; then
+  osascript -e 'display notification "ブラウザが開かない場合は http://127.0.0.1:8765/ を開いてください" with title "GIF化ツール WebUI"' >/dev/null 2>&1 || true
+fi
+exit 0
