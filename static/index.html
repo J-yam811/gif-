@@ -107,12 +107,16 @@
         return params;
       }
 
+      const BASE = (location.origin.startsWith('http://127.0.0.1:8765') || location.origin.startsWith('http://localhost:8765'))
+        ? ''
+        : 'http://127.0.0.1:8765';
+
       async function convertFile(file){
         setStatus('変換中…（少々お待ちください）');
         try{
           const params = buildQuery();
           if (file && file.name) params.set('filename', file.name);
-          const res = await fetch('/convert?' + params.toString(), {
+          const res = await fetch(BASE + '/convert?' + params.toString(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/octet-stream' },
             body: file,
@@ -153,7 +157,7 @@
           return;
         }
         try{
-          const r = await fetch('/healthz');
+          const r = await fetch(BASE + '/healthz');
           if(!r.ok) throw new Error('server not ok');
         }catch(e){
           setStatus('サーバに接続できません。ターミナルで "python3 webui.py --open" を実行してください。');
