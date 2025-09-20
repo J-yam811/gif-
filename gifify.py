@@ -34,10 +34,8 @@ def which(bin_name: str) -> str | None:
 def require_binary(bin_name: str) -> str:
     path = which(bin_name)
     if path is None:
-        print(f"[ERROR] 必須コマンドが見つかりません: {bin_name}", file=sys.stderr)
-        if bin_name == "ffmpeg":
-            print("  macOS: brew install ffmpeg", file=sys.stderr)
-        sys.exit(2)
+        hint = "\n  macOS: brew install ffmpeg" if bin_name == "ffmpeg" else ""
+        raise FileNotFoundError(f"必須コマンドが見つかりません: {bin_name}{hint}")
     return path
 
 
@@ -82,8 +80,7 @@ def detect_input_mode(input_path: Path | None, pattern: str | None) -> str:
     if pattern:
         return "images"
     if input_path is None:
-        print("[ERROR] 入力を指定してください（動画ファイル or --pattern）", file=sys.stderr)
-        sys.exit(2)
+        raise ValueError("入力を指定してください（動画ファイル or --pattern）")
     video_exts = {
         ".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".mpg", ".mpeg",
     }
@@ -139,8 +136,7 @@ def make_gif(
 
     # 既存ファイル処理
     if tmp_out.exists() and not overwrite:
-        print(f"[ERROR] 出力が既に存在します: {tmp_out}", file=sys.stderr)
-        sys.exit(1)
+        raise FileExistsError(f"出力が既に存在します: {tmp_out}")
 
     # FFmpegコマンド構築
     cmd: list[str] = [ffmpeg, "-hide_banner"]
@@ -171,8 +167,7 @@ def make_gif(
 
     code = run(cmd, verbose=verbose)
     if code != 0:
-        print("[ERROR] FFmpeg 実行に失敗しました", file=sys.stderr)
-        sys.exit(code)
+        raise RuntimeError("FFmpeg 実行に失敗しました")
 
     # gifsicle最適化
     if optimize:
@@ -184,8 +179,7 @@ def make_gif(
                 gcmd.insert(1, f"--lossy={int(lossy)}")
             code = run(gcmd, verbose=verbose)
             if code != 0:
-                print("[ERROR] gifsicle 実行に失敗しました", file=sys.stderr)
-                sys.exit(code)
+                raise RuntimeError("gifsicle 実行に失敗しました")
             # 一時ファイルを置換に使った場合は削除試行
             if tmp_out != output_path:
                 try:
@@ -262,8 +256,13 @@ def main(argv: list[str]) -> int:
     except KeyboardInterrupt:
         print("[INTERRUPTED] ユーザーにより中断されました", file=sys.stderr)
         return 130
+    except FileNotFoundError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 2
+    except (RuntimeError, ValueError, FileExistsError) as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
-

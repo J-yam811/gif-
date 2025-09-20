@@ -69,16 +69,24 @@ class DnDHandler(BaseHTTPRequestHandler):
         self._send_plain(HTTPStatus.NOT_FOUND, "Not Found")
 
     def _handle_convert(self) -> None:
-        ctype, pdict = cgi.parse_header(self.headers.get("Content-Type", ""))
+        ctype, _pdict = cgi.parse_header(self.headers.get("Content-Type", ""))
         if ctype != "multipart/form-data":
             self._send_plain(HTTPStatus.BAD_REQUEST, "multipart/form-data required")
             return
 
-        pdict["boundary"] = pdict["boundary"].encode()
-        fs = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={
-            "REQUEST_METHOD": "POST",
-            "CONTENT_TYPE": self.headers.get("Content-Type", ""),
-        })
+        try:
+            fs = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={
+                    "REQUEST_METHOD": "POST",
+                    "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                },
+                keep_blank_values=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            self._send_plain(HTTPStatus.BAD_REQUEST, f"form parse error: {e}")
+            return
 
         fitem = fs["file"] if "file" in fs else None
         if not fitem or not getattr(fitem, "filename", None):
@@ -142,7 +150,7 @@ class DnDHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Disposition", f"attachment; filename=\"{filename}\"")
             self.end_headers()
             self.wfile.write(gif_bytes)
-        except Exception as e:  # noqa: BLE001
+        except BaseException as e:  # 捕捉: ライブラリ側で SystemExit などが来ても落ちないように
             self._send_plain(HTTPStatus.INTERNAL_SERVER_ERROR, f"convert error: {e}")
         finally:
             try:
@@ -199,4 +207,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-
