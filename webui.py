@@ -21,6 +21,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import shutil
+import traceback
 import cgi
 import urllib.parse
 import webbrowser
@@ -215,6 +216,8 @@ class DnDHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(gif_bytes)
         except BaseException as e:
+            print(f"[ERROR] convert failed: {e}", file=sys.stderr)
+            traceback.print_exc()
             self._send_plain(HTTPStatus.INTERNAL_SERVER_ERROR, f"convert error: {e}")
         finally:
             try:

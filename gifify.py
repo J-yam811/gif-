@@ -46,8 +46,8 @@ def build_filter(fps: float, max_width: int | None, colors: int, dither: str) ->
 
     # スケール：最大幅指定がある場合だけ縮小（原寸以下のときはそのまま）
     if max_width is not None:
-        # min(iw,MAXW) で元幅を超えないようにする
-        parts.append(f"scale='min(iw,{int(max_width)})':-1:flags=lanczos")
+        # min(iw,MAXW) で元幅を超えないようにする。shell を介さないので , をエスケープ。
+        parts.append(f"scale=min(iw\\,{int(max_width)}):-1:flags=lanczos")
 
     # split→palettegen→paletteuse
     # ditherは ffmpeg の paletteuse に合わせて指定
