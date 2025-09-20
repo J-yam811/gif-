@@ -81,59 +81,104 @@ class DnDHandler(BaseHTTPRequestHandler):
         self._send_plain(HTTPStatus.NOT_FOUND, "Not Found")
 
     def _handle_convert(self) -> None:
+        # 100-continue に対応（大きいアップロードで必要な場合）
+        if self.headers.get("Expect", "").lower() == "100-continue":
+            self.send_response_only(HTTPStatus.CONTINUE)
+            self.end_headers()
+
+        # リクエスト情報
         ctype, _pdict = cgi.parse_header(self.headers.get("Content-Type", ""))
-        if ctype != "multipart/form-data":
-            self._send_plain(HTTPStatus.BAD_REQUEST, "multipart/form-data required")
-            return
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        print(f"[POST] /convert ctype={ctype} length={length}")
 
-        try:
-            fs = cgi.FieldStorage(
-                fp=self.rfile,
-                headers=self.headers,
-                environ={
-                    "REQUEST_METHOD": "POST",
-                    "CONTENT_TYPE": self.headers.get("Content-Type", ""),
-                    "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
-                },
-                keep_blank_values=True,
-            )
-        except Exception as e:  # noqa: BLE001
-            self._send_plain(HTTPStatus.BAD_REQUEST, f"form parse error: {e}")
-            return
+        # パラメータはクエリからも受け取れるようにする（raw upload 対応）
+        parsed = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(parsed.query)
 
-        fitem = fs["file"] if "file" in fs else None
-        if not fitem or not getattr(fitem, "filename", None):
-            self._send_plain(HTTPStatus.BAD_REQUEST, "no file")
-            return
+        def qget(name: str, default: str | None = None) -> str | None:
+            return (q.get(name, [default])[0])
 
-        # オプション
-        def get(name: str, default: str | None = None) -> str | None:
-            if name in fs and fs[name].value != "":
-                return fs[name].value
-            return default
-
-        fps = float(get("fps", "12") or 12)
-        max_width = int(get("max_width", "480") or 480)
-        colors = int(get("colors", "256") or 256)
-        dither = get("dither", "sierra2_4a") or "sierra2_4a"
-        loop = int(get("loop", "0") or 0)
-        start = get("start")
-        duration = get("duration")
-        to = get("to")
-        optimize = _parse_bool(get("optimize"))
-        lossy = get("lossy")
+        # デフォルト値
+        fps = float(qget("fps", "12") or 12)
+        max_width = int(qget("max_width", "480") or 480)
+        colors = int(qget("colors", "256") or 256)
+        dither = qget("dither", "sierra2_4a") or "sierra2_4a"
+        loop = int(qget("loop", "0") or 0)
+        start = qget("start")
+        duration = qget("duration")
+        to = qget("to")
+        optimize = _parse_bool(qget("optimize"))
+        lossy = qget("lossy")
         lossy_i = int(lossy) if lossy not in (None, "") else None
 
-        # 入力ファイル保存
-        suffix = Path(fitem.filename).suffix or ".bin"
-        with tempfile.NamedTemporaryFile(prefix="gifify_in_", suffix=suffix, delete=False) as tf:
-            # 大きなファイルでもメモリを圧迫しないようにストリームコピー
+        # 入力ファイルの取得
+        filename = qget("filename", "upload.bin")
+        if ctype == "application/octet-stream":
+            # 生データを受け取り、そのまま一時ファイルへ
+            if length <= 0:
+                self._send_plain(HTTPStatus.BAD_REQUEST, "missing or invalid Content-Length")
+                return
+            suffix = Path(filename).suffix or ".bin"
+            with tempfile.NamedTemporaryFile(prefix="gifify_in_", suffix=suffix, delete=False) as tf:
+                remaining = length
+                while remaining > 0:
+                    chunk = self.rfile.read(min(remaining, 1024 * 1024))
+                    if not chunk:
+                        break
+                    tf.write(chunk)
+                    remaining -= len(chunk)
+                in_path = Path(tf.name)
+        elif ctype == "multipart/form-data":
+            # 互換: フォームで送られてきた場合
             try:
-                fitem.file.seek(0)
-            except Exception:
-                pass
-            shutil.copyfileobj(fitem.file, tf, length=1024 * 1024)
-            in_path = Path(tf.name)
+                fs = cgi.FieldStorage(
+                    fp=self.rfile,
+                    headers=self.headers,
+                    environ={
+                        "REQUEST_METHOD": "POST",
+                        "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                        "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
+                    },
+                    keep_blank_values=True,
+                )
+            except Exception as e:  # noqa: BLE001
+                self._send_plain(HTTPStatus.BAD_REQUEST, f"form parse error: {e}")
+                return
+
+            fitem = fs["file"] if "file" in fs else None
+            if not fitem or not getattr(fitem, "filename", None):
+                self._send_plain(HTTPStatus.BAD_REQUEST, "no file")
+                return
+
+            # オプション上書き（フォーム優先）
+            def get(name: str, default: str | None = None) -> str | None:
+                if name in fs and fs[name].value != "":
+                    return fs[name].value
+                return default
+            fps = float(get("fps", str(fps)) or fps)
+            max_width = int(get("max_width", str(max_width)) or max_width)
+            colors = int(get("colors", str(colors)) or colors)
+            dither = get("dither", dither) or dither
+            loop = int(get("loop", str(loop)) or loop)
+            start = get("start", start) or start
+            duration = get("duration", duration) or duration
+            to = get("to", to) or to
+            optimize = _parse_bool(get("optimize", "true" if optimize else None))
+            lossy = get("lossy", lossy)
+            lossy_i = int(lossy) if lossy not in (None, "") else lossy_i
+
+            filename = getattr(fitem, "filename", filename)
+            suffix = Path(filename).suffix or ".bin"
+            with tempfile.NamedTemporaryFile(prefix="gifify_in_", suffix=suffix, delete=False) as tf:
+                try:
+                    fitem.file.seek(0)
+                except Exception:
+                    pass
+                shutil.copyfileobj(fitem.file, tf, length=1024 * 1024)
+                in_path = Path(tf.name)
+        else:
+            self._send_plain(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, f"unsupported content-type: {ctype}")
+            return
 
         # 出力パス
         with tempfile.NamedTemporaryFile(prefix="gifify_out_", suffix=".gif", delete=False) as of:
@@ -160,15 +205,15 @@ class DnDHandler(BaseHTTPRequestHandler):
 
             # 結果返却
             gif_bytes = out_path.read_bytes()
-            filename = Path(fitem.filename).with_suffix(".gif").name
+            outname = Path(filename).with_suffix(".gif").name
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "image/gif")
             self._add_cors()
             self.send_header("Content-Length", str(len(gif_bytes)))
-            self.send_header("Content-Disposition", f"attachment; filename=\"{filename}\"")
+            self.send_header("Content-Disposition", f"attachment; filename=\"{outname}\"")
             self.end_headers()
             self.wfile.write(gif_bytes)
-        except BaseException as e:  # 捕捉: ライブラリ側で SystemExit などが来ても落ちないように
+        except BaseException as e:
             self._send_plain(HTTPStatus.INTERNAL_SERVER_ERROR, f"convert error: {e}")
         finally:
             try:
