@@ -20,6 +20,7 @@ import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import shutil
 import cgi
 import urllib.parse
 import webbrowser
@@ -81,6 +82,7 @@ class DnDHandler(BaseHTTPRequestHandler):
                 environ={
                     "REQUEST_METHOD": "POST",
                     "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                    "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
                 },
                 keep_blank_values=True,
             )
@@ -114,8 +116,12 @@ class DnDHandler(BaseHTTPRequestHandler):
         # 入力ファイル保存
         suffix = Path(fitem.filename).suffix or ".bin"
         with tempfile.NamedTemporaryFile(prefix="gifify_in_", suffix=suffix, delete=False) as tf:
-            data = fitem.file.read()
-            tf.write(data)
+            # 大きなファイルでもメモリを圧迫しないようにストリームコピー
+            try:
+                fitem.file.seek(0)
+            except Exception:
+                pass
+            shutil.copyfileobj(fitem.file, tf, length=1024 * 1024)
             in_path = Path(tf.name)
 
         # 出力パス

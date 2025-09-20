@@ -100,11 +100,18 @@ def add_time_opts(cmd: list[str], start: str | None, duration: str | None, to: s
         cmd.extend(["-to", str(to)])
 
 
-def run(cmd: list[str], verbose: bool = False) -> int:
+def run(cmd: list[str], verbose: bool = False) -> None:
     if verbose:
         print("[cmd]", " ".join(shlex.quote(c) for c in cmd), file=sys.stderr)
-    proc = subprocess.run(cmd)
-    return proc.returncode
+        subprocess.run(cmd, check=True)
+    else:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            lines = (proc.stderr or proc.stdout or "").strip().splitlines()
+            tail = "\n".join(lines[-20:])
+            raise RuntimeError(
+                f"{cmd[0]} failed (exit {proc.returncode}).\n" + (tail if tail else "no output")
+            )
 
 
 def make_gif(
@@ -165,9 +172,7 @@ def make_gif(
     # フィルタ + ループ指定
     cmd.extend(["-vf", vf, "-loop", str(loop), str(tmp_out)])
 
-    code = run(cmd, verbose=verbose)
-    if code != 0:
-        raise RuntimeError("FFmpeg 実行に失敗しました")
+    run(cmd, verbose=verbose)
 
     # gifsicle最適化
     if optimize:
@@ -177,9 +182,7 @@ def make_gif(
             gcmd = [gifsicle, "-O3", str(tmp_out), "-o", str(output_path)]
             if lossy is not None:
                 gcmd.insert(1, f"--lossy={int(lossy)}")
-            code = run(gcmd, verbose=verbose)
-            if code != 0:
-                raise RuntimeError("gifsicle 実行に失敗しました")
+            run(gcmd, verbose=verbose)
             # 一時ファイルを置換に使った場合は削除試行
             if tmp_out != output_path:
                 try:
