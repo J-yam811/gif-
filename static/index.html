@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GIF化ツール – Drag & Drop</title>
+    <style>
+      :root { --bg:#0b0c10; --fg:#eaeaea; --muted:#b5b5b5; --acc:#6ee7b7; }
+      html,body{height:100%; margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:var(--bg); color:var(--fg)}
+      .wrap{max-width:880px; margin:0 auto; padding:24px}
+      h1{font-size:20px; margin:0 0 12px}
+      p{color:var(--muted)}
+      .zones{display:grid; grid-template-columns:1fr; gap:16px;}
+      .drop{border:2px dashed #3b3b3b; border-radius:12px; padding:32px; text-align:center; transition:.2s}
+      .drop.drag{border-color:var(--acc); background:#0f1414}
+      .drop input[type=file]{display:none}
+      .btn{display:inline-block; background:#1f2937; color:#fff; padding:10px 16px; border-radius:8px; text-decoration:none; cursor:pointer}
+      .row{display:flex; gap:12px; flex-wrap:wrap; align-items:end}
+      .field{display:flex; flex-direction:column; gap:6px}
+      .field input, .field select{background:#111827; color:#e5e7eb; border:1px solid #374151; border-radius:8px; padding:8px 10px; min-width:110px}
+      .check{display:flex; align-items:center; gap:8px}
+      .status{margin-top:14px; min-height:24px; color:var(--muted)}
+      footer{margin-top:32px; color:#7b7b7b; font-size:12px}
+      a{color:#93c5fd}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>GIF化ツール – Drag & Drop</h1>
+      <p>ここに動画をドラッグ&ドロップするか、「ファイルを選択」をクリックしてください。処理はローカルで実行されます。</p>
+
+      <div class="zones">
+        <form id="conv" class="drop" action="/convert" method="post" enctype="multipart/form-data">
+          <input id="file" name="file" type="file" accept="video/*,.webm,.mkv" />
+          <p><strong>ここにドロップ</strong> or <label class="btn" for="file">ファイルを選択</label></p>
+          <div class="row">
+            <div class="field">
+              <label for="fps">FPS</label>
+              <input id="fps" name="fps" type="number" step="0.1" value="12" />
+            </div>
+            <div class="field">
+              <label for="max_width">最大幅(px)</label>
+              <input id="max_width" name="max_width" type="number" value="480" />
+            </div>
+            <div class="field">
+              <label for="dither">ディザ</label>
+              <select id="dither" name="dither">
+                <option value="sierra2_4a" selected>sierra2_4a</option>
+                <option value="bayer">bayer</option>
+                <option value="floyd_steinberg">floyd_steinberg</option>
+                <option value="none">none</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="start">開始(例 5 or 00:00:05.3)</label>
+              <input id="start" name="start" type="text" placeholder="任意" />
+            </div>
+            <div class="field">
+              <label for="duration">長さ(秒/時刻)</label>
+              <input id="duration" name="duration" type="text" placeholder="任意" />
+            </div>
+            <div class="field">
+              <label for="to">終了(時刻)</label>
+              <input id="to" name="to" type="text" placeholder="任意" />
+            </div>
+            <label class="check"><input id="optimize" name="optimize" type="checkbox" /> gifsicleで最適化</label>
+            <div class="field">
+              <label for="lossy">lossy(0-200)</label>
+              <input id="lossy" name="lossy" type="number" min="0" max="200" placeholder="任意" />
+            </div>
+          </div>
+          <div class="status" id="status"></div>
+        </form>
+      </div>
+
+      <footer>
+        <p>バックエンド: FFmpeg + palettegen/paletteuse。<br/>高負荷の長尺動画は時間がかかります。</p>
+      </footer>
+    </div>
+
+    <script>
+      const form = document.getElementById('conv');
+      const fileInput = document.getElementById('file');
+      const statusEl = document.getElementById('status');
+
+      function setStatus(msg){ statusEl.textContent = msg || ''; }
+
+      function downloadBlob(blob, filename){
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename || 'output.gif';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url), 1000);
+      }
+
+      async function convertFile(file){
+        const fd = new FormData(form);
+        fd.set('file', file, file.name);
+        setStatus('変換中…（少々お待ちください）');
+        try{
+          const res = await fetch('/convert', { method:'POST', body: fd });
+          if(!res.ok){ throw new Error(await res.text()); }
+          const blob = await res.blob();
+          const outName = (file.name || 'output').replace(/\.[^.]+$/, '') + '.gif';
+          downloadBlob(blob, outName);
+          setStatus('完了: ' + outName);
+        }catch(err){
+          setStatus('エラー: ' + err.message);
+        }
+      }
+
+      // drag & drop UI
+      form.addEventListener('dragover', (e)=>{ e.preventDefault(); form.classList.add('drag'); });
+      form.addEventListener('dragleave', ()=> form.classList.remove('drag'));
+      form.addEventListener('drop', (e)=>{
+        e.preventDefault(); form.classList.remove('drag');
+        const files = e.dataTransfer.files;
+        if(files && files[0]) convertFile(files[0]);
+      });
+
+      // file chooser
+      fileInput.addEventListener('change', ()=>{
+        if(fileInput.files && fileInput.files[0]) convertFile(fileInput.files[0]);
+      });
+    </script>
+  </body>
+</html>
+
