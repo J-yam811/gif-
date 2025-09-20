@@ -42,6 +42,17 @@ def _parse_bool(v: str | None) -> bool:
 class DnDHandler(BaseHTTPRequestHandler):
     server_version = "GififyWebUI/1.0"
 
+    def _add_cors(self) -> None:
+        # ローカル以外や file:// からの利用にも備える（開発用途）
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self._add_cors()
+        self.end_headers()
+
     def do_GET(self) -> None:  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
         if path == "/" or path == "/index.html":
@@ -152,6 +163,7 @@ class DnDHandler(BaseHTTPRequestHandler):
             filename = Path(fitem.filename).with_suffix(".gif").name
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "image/gif")
+            self._add_cors()
             self.send_header("Content-Length", str(len(gif_bytes)))
             self.send_header("Content-Disposition", f"attachment; filename=\"{filename}\"")
             self.end_headers()
@@ -172,6 +184,7 @@ class DnDHandler(BaseHTTPRequestHandler):
         data = text.encode("utf-8")
         self.send_response(int(status))
         self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self._add_cors()
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -183,6 +196,7 @@ class DnDHandler(BaseHTTPRequestHandler):
         data = path.read_bytes()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
+        self._add_cors()
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)

@@ -105,7 +105,12 @@
           downloadBlob(blob, outName);
           setStatus('完了: ' + outName);
         }catch(err){
-          setStatus('エラー: ' + err.message);
+          const isNetwork = (err && (err.name === 'TypeError' || /NetworkError|Failed to fetch/i.test(err.message)));
+          if (isNetwork) {
+            setStatus('エラー: サーバに接続できません。ターミナルで "python3 webui.py --open" を実行し、http://127.0.0.1:8765/ から開いてください。');
+          } else {
+            setStatus('エラー: ' + err.message);
+          }
         }
       }
 
@@ -122,7 +127,20 @@
       fileInput.addEventListener('change', ()=>{
         if(fileInput.files && fileInput.files[0]) convertFile(fileInput.files[0]);
       });
+
+      // health check & file://検知
+      (async function init(){
+        if (location.protocol === 'file:') {
+          setStatus('注意: このページは file:// で直接開かれています。必ずサーバを起動し、http://127.0.0.1:8765/ からアクセスしてください。');
+          return;
+        }
+        try{
+          const r = await fetch('/healthz');
+          if(!r.ok) throw new Error('server not ok');
+        }catch(e){
+          setStatus('サーバに接続できません。ターミナルで "python3 webui.py --open" を実行してください。');
+        }
+      })();
     </script>
   </body>
 </html>
-
